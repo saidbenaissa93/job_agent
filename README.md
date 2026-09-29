@@ -19,6 +19,8 @@ Un agent IA autonome basé sur **Streamlit**, **Ollama (`Qwen2.5`)** et **SQLite
    ```bash
    ollama run qwen2.5:7b
 
+```text
+.
 ├── agent/            # Logique de l'agent IA et définition des outils (tools.py)
 ├── collectors/       # Scripts de scraping des offres d'emploi
 ├── matching/         # Logique de calcul du score d'adéquation
@@ -27,3 +29,4 @@ Un agent IA autonome basé sur **Streamlit**, **Ollama (`Qwen2.5`)** et **SQLite
 ├── app.py            # Interface utilisateur Streamlit
 ├── jobs.db           # Base de données des offres d'emploi
 └── requirements.txt  # Dépendances Python
+```
