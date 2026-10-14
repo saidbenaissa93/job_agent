@@ -39,7 +39,7 @@ jobs:
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          key: playwright-v2-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
 
       - name: Installer Playwright (navigateur + dépendances système)
         if: steps.playwright-cache.outputs.cache-hit != 'true'
