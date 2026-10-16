@@ -1,5 +1,6 @@
 import os
 import re
+import time
 from urllib.parse import urlparse
 from playwright.sync_api import sync_playwright
 from collectors.base import JobOffer
@@ -28,9 +29,7 @@ def _remove_overlays(page):
 
 
 def _detect_contract(text: str) -> str:
-    """Détecte le type de contrat dans le texte de la page de détail.
-    CDI/CDD sont prioritaires ; sinon, un autre type de contrat (stage, alternance,
-    freelance, intérim) renvoie 'AUTRE', ce qui fait rejeter l'offre par les filtres."""
+    """Détecte le type de contrat dans le texte de la page de détail."""
     m = re.search(r"\b(CDI|CDD)\b", text)
     if m:
         return m.group(1)
@@ -40,8 +39,7 @@ def _detect_contract(text: str) -> str:
 
 
 def _parse_job_url(url: str):
-    """Extrait un identifiant stable et la ville depuis l'URL d'une offre.
-    Les URL WTTJ ressemblent à .../jobs/<titre>_<ville>_<code>_<id> (à vérifier)."""
+    """Extrait un identifiant stable et la ville depuis l'URL d'une offre."""
     slug = urlparse(url).path.rstrip("/").split("/")[-1]
     parts = slug.split("_")
     city = parts[1].replace("-", " ").title() if len(parts) >= 3 else ""
@@ -51,11 +49,12 @@ def _parse_job_url(url: str):
 def _run_search_flow(page, query: str, location: str) -> bool:
     """Parcours d'accueil WTTJ (intitulé -> expérience -> localisation) puis filtre 24h."""
     # Étape 1 : Intitulé
-    page.goto(f"{BASE_URL}/fr/get-started/job-title", wait_until="domcontentloaded")
-    page.wait_for_timeout(1500)
+    page.goto(f"{BASE_URL}/fr/get-started/job-title", wait_until="domcontentloaded", timeout=12000)
+    page.wait_for_timeout(1000)
     _remove_overlays(page)
 
     input_box = page.locator("input[type='text']").first
+    input_box.wait_for(state="visible", timeout=8000)
     input_box.click()
     input_box.fill(query)
     page.wait_for_timeout(1000)
@@ -63,22 +62,39 @@ def _run_search_flow(page, query: str, location: str) -> bool:
         page.locator("ul li, div[role='option'], li[role='option']").first.click(timeout=3000)
     except Exception:
         pass
-    
+
     page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
     page.wait_for_timeout(500)
-    page.locator("button:has-text('Suivant')").last.click(timeout=3000)
+    page.locator("button:has-text('Suivant')").last.click(timeout=5000)
 
-    # Étape 2 : Niveau d'expérience
+    # Étape 2 : Niveau d'expérience (Débutant 0-1 an + Junior 1-3 ans)
     page.wait_for_url("**/get-started/experience-level**", timeout=10000)
     _remove_overlays(page)
-    page.locator("label[data-testid='experienceLevel-option-one_to_three']").click()
+
+    # Sélection 0-1 an (Débutant / Diplômé)
+    try:
+        exp_0_1 = page.locator("label[data-testid='experienceLevel-option-less_than_a_year']")
+        exp_0_1.wait_for(state="visible", timeout=3000)
+        exp_0_1.click()
+    except Exception:
+        pass
+
+    # Sélection 1-3 ans (Junior)
+    try:
+        exp_1_3 = page.locator("label[data-testid='experienceLevel-option-one_to_three']")
+        exp_1_3.wait_for(state="visible", timeout=3000)
+        exp_1_3.click()
+    except Exception:
+        pass
+
     page.wait_for_timeout(500)
-    page.locator("button:has-text('Suivant')").last.click()
+    page.locator("button:has-text('Suivant')").last.click(timeout=5000)
 
     # Étape 3 : Localisation
     page.wait_for_url("**/get-started/location**", timeout=10000)
     _remove_overlays(page)
     loc_input = page.locator("input[data-testid='location-search-input']").first
+    loc_input.wait_for(state="visible", timeout=8000)
     loc_input.click()
     loc_input.fill(location)
     page.wait_for_timeout(1000)
@@ -86,26 +102,23 @@ def _run_search_flow(page, query: str, location: str) -> bool:
         page.locator("div[role='listbox'] div, ul li, li[role='option']").first.click(timeout=3000)
     except Exception:
         page.keyboard.press("Enter")
-        
+
     page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
     page.wait_for_timeout(500)
-    page.locator("button:has-text('Découvrir mes jobs')").last.click(timeout=3000)
+    page.locator("button:has-text('Découvrir mes jobs')").last.click(timeout=5000)
 
-   # Étape 4 : Page de résultats + filtre 24h
+    # Étape 4 : Page de résultats + filtre 24h
     print("   Application du filtre 24h...")
-    page.wait_for_url("**/jobs-preview**", timeout=15000)
-    page.wait_for_timeout(3000)
+    page.wait_for_url("**/jobs-preview**", timeout=12000)
+    page.wait_for_timeout(2500)
     _remove_overlays(page)
 
     try:
-        # Clic sur le bouton déroulant "Toutes les dates"
-        # On essaie d'abord via get_by_text qui est le plus robuste sur React/Next.js
         date_dropdown = page.get_by_text("Toutes les dates").first
         date_dropdown.wait_for(state="visible", timeout=5000)
         date_dropdown.click()
-        page.wait_for_timeout(1000)
+        page.wait_for_timeout(800)
 
-        # Clic sur l'option "Dernières 24 heures"
         option_24h = page.get_by_text("Dernières 24 heures").first
         option_24h.wait_for(state="visible", timeout=5000)
         option_24h.click()
@@ -113,14 +126,13 @@ def _run_search_flow(page, query: str, location: str) -> bool:
         print("   ✓ Filtre 24h appliqué avec succès !")
         page.wait_for_timeout(2000)
         return True
-
     except Exception as e:
         print(f"   ⚠️ Échec du clic sur le filtre 24h : {e}")
-        # Si le filtre échoue (ex: aucun filtre affiché s'il y a très peu d'offres), 
-        # tu peux passer à True pour ne pas bloquer tout le script :
         return False
+
+
 def _collect_cards(page) -> list[dict]:
-    """Fait défiler la page puis récupère les cartes d'offres (titre, entreprise, url)."""
+    """Fait défiler la page puis récupère les cartes d'offres."""
     for _ in range(3):
         page.evaluate("window.scrollBy(0, 800)")
         page.wait_for_timeout(1000)
@@ -159,11 +171,10 @@ def _collect_cards(page) -> list[dict]:
 
 
 def _get_description(page, url: str) -> str:
-    """Texte de la page de détail. Cible la section du poste en priorité, pour éviter
-    de ramasser des offres suggérées qui pourraient déclencher de faux positifs."""
+    """Texte de la page de détail."""
     try:
-        page.goto(url, wait_until="domcontentloaded", timeout=15000)
-        page.wait_for_timeout(1500)
+        page.goto(url, wait_until="domcontentloaded", timeout=10000)
+        page.wait_for_timeout(1000)
         _remove_overlays(page)
 
         section = page.locator("#the-position-section")
@@ -180,7 +191,6 @@ def _get_description(page, url: str) -> str:
 def fetch_offers_for_keyword(browser, keyword: str, location: str = "France") -> list[JobOffer]:
     offers = []
 
-    # Un contexte neuf par mot-clé : le parcours d'accueil garde un état en session
     context = browser.new_context(
         viewport={"width": 1280, "height": 900},
         user_agent=USER_AGENT,
@@ -190,14 +200,13 @@ def fetch_offers_for_keyword(browser, keyword: str, location: str = "France") ->
     try:
         date_filter_ok = _run_search_flow(page, keyword, location)
         if not date_filter_ok:
-            print(f"  ⚠️ Filtre 24h non appliqué pour '{keyword}' : mot-clé ignoré "
-                  f"(évite d'importer de vieilles offres)")
+            print(f"  ⚠️ Filtre 24h non appliqué pour '{keyword}' : mot-clé ignoré")
             return []
 
         cards = _collect_cards(page)
         print(f"  → {len(cards)} offres trouvées pour '{keyword}' (≤24h)")
 
-        # Passe 1 : filtrage rapide sur le titre
+        # Passe 1 : filtrage rapide
         candidates = []
         for c in cards:
             raw = {
@@ -216,9 +225,9 @@ def fetch_offers_for_keyword(browser, keyword: str, location: str = "France") ->
 
         if len(candidates) > MAX_CANDIDATES_TO_CHECK:
             print(f"  → limite à {MAX_CANDIDATES_TO_CHECK} candidat(e)s vérifié(e)s")
-        candidates = candidates[:MAX_CANDIDATES_TO_CHECK]
+            candidates = candidates[:MAX_CANDIDATES_TO_CHECK]
 
-        # Passe 2 : lecture de la page de détail + filtres complets
+        # Passe 2 : lecture de la description + filtres complets
         for c in candidates:
             description = _get_description(page, c["url"])
 
@@ -255,22 +264,27 @@ def fetch_offers_for_keyword(browser, keyword: str, location: str = "France") ->
 
 
 def fetch_offers_batch(keywords: list[str], location: str = "France",
-                       headless: bool = True, slow_mo: int = 0) -> dict[str, list[JobOffer]]:
-    """Un seul navigateur partagé pour tous les mots-clés.
-    headless=True est obligatoire sur GitHub Actions (pas d'écran)."""
+                        headless: bool = True, slow_mo: int = 0) -> dict[str, list[JobOffer]]:
     results = {}
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless, slow_mo=slow_mo)
         for keyword in keywords:
-            results[keyword] = fetch_offers_for_keyword(browser, keyword, location)
+            try:
+                results[keyword] = fetch_offers_for_keyword(browser, keyword, location)
+            except Exception as e:
+                print(f"  ⚠️ Erreur mot-clé '{keyword}' : {e}")
+                results[keyword] = []
+            
+            # Pause de 2 secondes entre les requêtes
+            time.sleep(2)
+            
         browser.close()
     return results
 
 
 if __name__ == "__main__":
-    # Par défaut, fenêtre visible pour observer. WTTJ_HEADLESS=1 pour simuler GitHub Actions.
     headless = os.getenv("WTTJ_HEADLESS", "0") == "1"
-    res = fetch_offers_batch(["Data Engineer"], headless=headless, slow_mo=0 if headless else 100)
+    res = fetch_offers_batch(["Data Engineer", "Data Analyst"], headless=headless, slow_mo=0 if headless else 100)
     for kw, offers in res.items():
         print(f"\n{kw} : {len(offers)} offres retenues")
         for o in offers:
