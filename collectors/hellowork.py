@@ -1,3 +1,4 @@
+import os
 import re
 import requests
 from bs4 import BeautifulSoup
@@ -37,8 +38,6 @@ def _extract_job_content_fast(soup: BeautifulSoup) -> str:
     ET le badge d'expérience (souvent hors accordéon, dans les métadonnées du poste)."""
     parts = []
 
-    # Badge d'expérience : re.search (pas re.match) pour tolérer un préfixe
-    # invisible (icône, espace insécable) avant "Exp."
     for li in soup.find_all("li"):
         li_text = li.get_text(strip=True)
         if re.search(r"exp\.?\s*\d", li_text, re.IGNORECASE):
@@ -166,11 +165,19 @@ def fetch_offers_for_keyword(page, keyword: str, max_hours: int = 48) -> list[Jo
         title = title_el.inner_text().strip()
         company = company_el.inner_text().strip() if company_el else "N/A"
         location = location_el.inner_text().strip() if location_el else ""
-        contract = contract_el.inner_text().strip() if contract_el else "CDI"
+        raw_contract = contract_el.inner_text().strip() if contract_el else "CDI"
         posted_text = date_el.inner_text().strip() if date_el else ""
         href = link_el.get_attribute("href") or ""
         url_job = f"https://www.hellowork.com{href}" if href.startswith("/") else href
         offer_id = href.split("/")[-1].replace(".html", "") if href else ""
+
+        # Normalisation rapide du contrat (ex: "CDI 39h" -> "CDI")
+        if "cdi" in raw_contract.lower():
+            contract = "CDI"
+        elif "cdd" in raw_contract.lower():
+            contract = "CDD"
+        else:
+            contract = "AUTRE"
 
         if not is_recent_indeed_text(posted_text, max_hours=max_hours):
             print(f"  ✗ Filtrée (date : '{posted_text}') : {title} — {company}")
@@ -190,7 +197,8 @@ def fetch_offers_for_keyword(page, keyword: str, max_hours: int = 48) -> list[Jo
             "entreprise": {"nom": company},
         }
 
-        if not passes_hard_filters(raw):
+        # MODIFICATION : debug=True activé ici pour afficher la cause du rejet
+        if not passes_hard_filters(raw, debug=True):
             print(f"  ✗ Filtrée (critères titre) : {title} — {company}")
             continue
 
@@ -208,7 +216,7 @@ def fetch_offers_for_keyword(page, keyword: str, max_hours: int = 48) -> list[Jo
 
     if len(candidates) > MAX_CANDIDATES_TO_CHECK:
         print(f"  → limite à {MAX_CANDIDATES_TO_CHECK} candidat(e)s vérifié(e)s (les plus récent(e)s)")
-    candidates = candidates[:MAX_CANDIDATES_TO_CHECK]
+        candidates = candidates[:MAX_CANDIDATES_TO_CHECK]
 
     for c in candidates:
         full_text = _get_full_description(page, c["url"])
