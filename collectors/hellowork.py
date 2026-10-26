@@ -34,10 +34,7 @@ def _clean_page_text(full_text: str) -> str:
 
 
 def _extract_job_content_fast(soup: BeautifulSoup) -> str:
-    """Extrait le contenu des accordéons 'Missions'/'Profil recherché',
-    ET le badge d'expérience (souvent hors accordéon, dans les métadonnées du poste)."""
     parts = []
-
     for li in soup.find_all("li"):
         li_text = li.get_text(strip=True)
         if re.search(r"exp\.?\s*\d", li_text, re.IGNORECASE):
@@ -96,7 +93,6 @@ def _get_full_description(page, url: str) -> str:
         targeted = page.evaluate("""
             () => {
                 let parts = [];
-
                 const lis = Array.from(document.querySelectorAll('li'));
                 for (const li of lis) {
                     const t = (li.textContent || '').trim();
@@ -104,7 +100,6 @@ def _get_full_description(page, url: str) -> str:
                         parts.push(t);
                     }
                 }
-
                 const detailsList = Array.from(document.querySelectorAll('details'));
                 for (const d of detailsList) {
                     const summary = d.querySelector('summary');
@@ -114,7 +109,6 @@ def _get_full_description(page, url: str) -> str:
                         parts.push(d.textContent || '');
                     }
                 }
-
                 return parts.join(' ').trim();
             }
         """)
@@ -152,11 +146,13 @@ def fetch_offers_for_keyword(page, keyword: str, max_hours: int = 48) -> list[Jo
     candidates = []
 
     for card in cards:
-        title_el = card.query_selector('a[data-cy="offerTitle"] h3 p:first-child')
-        company_el = card.query_selector('a[data-cy="offerTitle"] h3 p:nth-child(2)')
-        link_el = card.query_selector('a[data-cy="offerTitle"]')
+        card_text = card.inner_text()
+
+        # Sélecteurs robustes ciblant les cartes HelloWork modernes
+        link_el = card.query_selector('a[data-cy="offerTitle"]') or card.query_selector('a[href*="/emplois/"]') or card.query_selector('a[href*="/emploi/"]')
+        title_el = card.query_selector('a[data-cy="offerTitle"] h3') or card.query_selector('h3')
+        company_el = card.query_selector('[data-cy="companyName"]') or card.query_selector('a[data-cy="offerTitle"] h3 p:nth-child(2)')
         location_el = card.query_selector('[data-cy="localisationCard"]')
-        contract_el = card.query_selector('[data-cy="contractCard"]')
         date_el = card.query_selector('.typo-s.text-grey-500.pl-1.pt-1')
 
         if not title_el or not link_el:
@@ -165,19 +161,21 @@ def fetch_offers_for_keyword(page, keyword: str, max_hours: int = 48) -> list[Jo
         title = title_el.inner_text().strip()
         company = company_el.inner_text().strip() if company_el else "N/A"
         location = location_el.inner_text().strip() if location_el else ""
-        raw_contract = contract_el.inner_text().strip() if contract_el else "CDI"
         posted_text = date_el.inner_text().strip() if date_el else ""
         href = link_el.get_attribute("href") or ""
         url_job = f"https://www.hellowork.com{href}" if href.startswith("/") else href
         offer_id = href.split("/")[-1].replace(".html", "") if href else ""
 
-        # Normalisation rapide du contrat (ex: "CDI 39h" -> "CDI")
-        if "cdi" in raw_contract.lower():
+        # Détection du type de contrat
+        card_text_lower = card_text.lower()
+        if "cdi" in card_text_lower:
             contract = "CDI"
-        elif "cdd" in raw_contract.lower():
+        elif "cdd" in card_text_lower:
             contract = "CDD"
-        else:
+        elif any(k in card_text_lower for k in ["stage", "alternance", "apprentissage", "intérim"]):
             contract = "AUTRE"
+        else:
+            contract = "CDI"
 
         if not is_recent_indeed_text(posted_text, max_hours=max_hours):
             print(f"  ✗ Filtrée (date : '{posted_text}') : {title} — {company}")
@@ -197,9 +195,9 @@ def fetch_offers_for_keyword(page, keyword: str, max_hours: int = 48) -> list[Jo
             "entreprise": {"nom": company},
         }
 
-        # MODIFICATION : debug=True activé ici pour afficher la cause du rejet
+        # Évaluation avec affichage des logs de rejet
         if not passes_hard_filters(raw, debug=True):
-            print(f"  ✗ Filtrée (critères titre) : {title} — {company}")
+            print(f"  ✗ Filtrée (titre) : {title} — {company}")
             continue
 
         candidates.append({
