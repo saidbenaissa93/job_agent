@@ -11,7 +11,7 @@ MAX_CANDIDATES_TO_CHECK = 8
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
 
 OVERLAY_JS = (
@@ -19,9 +19,26 @@ OVERLAY_JS = (
     ".forEach(e => e.remove());"
 )
 
+# Configuration de ton profil
+PROFILE = {
+    "job_titles": [
+        "Data Engineer",
+        "Ingénieur Data",
+        "Data Analyst",
+        "Analyste Data",
+        "Data Scientist",
+        "Développeur BI",
+        "Ingénieur BI",
+        "Consultant Data",
+        "ETL Developer",
+        "Développeur ETL",
+        "AI Engineer",
+        "Ingénieur IA",
+    ]
+}
+
 
 def _remove_overlays(page):
-    """Supprime le bandeau cookies (Axeptio) qui bloque les clics."""
     try:
         page.evaluate(OVERLAY_JS)
     except Exception:
@@ -29,7 +46,6 @@ def _remove_overlays(page):
 
 
 def _detect_contract(text: str) -> str:
-    """Détecte le type de contrat dans le texte de la page de détail."""
     m = re.search(r"\b(CDI|CDD)\b", text)
     if m:
         return m.group(1)
@@ -39,7 +55,6 @@ def _detect_contract(text: str) -> str:
 
 
 def _parse_job_url(url: str):
-    """Extrait un identifiant stable et la ville depuis l'URL d'une offre."""
     slug = urlparse(url).path.rstrip("/").split("/")[-1]
     parts = slug.split("_")
     city = parts[1].replace("-", " ").title() if len(parts) >= 3 else ""
@@ -47,135 +62,194 @@ def _parse_job_url(url: str):
 
 
 def _run_search_flow(page, query: str, location: str) -> bool:
-    """Parcours d'accueil WTTJ (intitulé -> expérience -> localisation) puis filtre 24h."""
-    # Étape 1 : Intitulé
-    page.goto(f"{BASE_URL}/fr/get-started/job-title", wait_until="domcontentloaded", timeout=12000)
-    page.wait_for_timeout(1000)
-    _remove_overlays(page)
-
-    input_box = page.locator("input[type='text']").first
-    input_box.wait_for(state="visible", timeout=8000)
-    input_box.click()
-    input_box.fill(query)
-    page.wait_for_timeout(1000)
+    """Accède au tunnel de recherche WTTJ et active le filtre 'Dernières 24 heures' sur la page de résultats."""
     try:
-        page.locator("ul li, div[role='option'], li[role='option']").first.click(timeout=3000)
-    except Exception:
-        pass
-
-    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-    page.wait_for_timeout(500)
-    page.locator("button:has-text('Suivant')").last.click(timeout=5000)
-
-    # Étape 2 : Niveau d'expérience (Débutant 0-1 an + Junior 1-3 ans)
-    page.wait_for_url("**/get-started/experience-level**", timeout=10000)
-    _remove_overlays(page)
-
-    # Sélection 0-1 an (Débutant / Diplômé)
-    try:
-        exp_0_1 = page.locator("label[data-testid='experienceLevel-option-less_than_a_year']")
-        exp_0_1.wait_for(state="visible", timeout=3000)
-        exp_0_1.click()
-    except Exception:
-        pass
-
-    # Sélection 1-3 ans (Junior)
-    try:
-        exp_1_3 = page.locator("label[data-testid='experienceLevel-option-one_to_three']")
-        exp_1_3.wait_for(state="visible", timeout=3000)
-        exp_1_3.click()
-    except Exception:
-        pass
-
-    page.wait_for_timeout(500)
-    page.locator("button:has-text('Suivant')").last.click(timeout=5000)
-
-    # Étape 3 : Localisation
-    page.wait_for_url("**/get-started/location**", timeout=10000)
-    _remove_overlays(page)
-    loc_input = page.locator("input[data-testid='location-search-input']").first
-    loc_input.wait_for(state="visible", timeout=8000)
-    loc_input.click()
-    loc_input.fill(location)
-    page.wait_for_timeout(1000)
-    try:
-        page.locator("div[role='listbox'] div, ul li, li[role='option']").first.click(timeout=3000)
-    except Exception:
-        page.keyboard.press("Enter")
-
-    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-    page.wait_for_timeout(500)
-    page.locator("button:has-text('Découvrir mes jobs')").last.click(timeout=5000)
-
-    # Étape 4 : Page de résultats + filtre 24h
-    print("   Application du filtre 24h...")
-    page.wait_for_url("**/jobs-preview**", timeout=12000)
-    page.wait_for_timeout(2500)
-    _remove_overlays(page)
-
-    try:
-        date_dropdown = page.get_by_text("Toutes les dates").first
-        date_dropdown.wait_for(state="visible", timeout=5000)
-        date_dropdown.click()
-        page.wait_for_timeout(800)
-
-        option_24h = page.get_by_text("Dernières 24 heures").first
-        option_24h.wait_for(state="visible", timeout=5000)
-        option_24h.click()
-        
-        print("   ✓ Filtre 24h appliqué avec succès !")
+        # Étape 1 : Ouverture du tunnel
+        page.goto(f"{BASE_URL}/fr/get-started/job-title", wait_until="domcontentloaded", timeout=20000)
         page.wait_for_timeout(2000)
+        _remove_overlays(page)
+
+        # 1/3 Intitulé de poste
+        print(f"   → 1/3 Saisie du poste : '{query}'")
+        input_job = page.locator("input[type='text']").first
+        input_job.wait_for(state="visible", timeout=8000)
+        input_job.click()
+        page.keyboard.type(query, delay=50)
+        page.wait_for_timeout(1000)
+
+        # Clic sur la suggestion de poste
+        try:
+            job_opt = page.locator("ul[role='listbox'] li, [role='option'], li").first
+            if job_opt.count() > 0 and job_opt.is_visible():
+                job_opt.click()
+                page.wait_for_timeout(500)
+            else:
+                page.keyboard.press("ArrowDown")
+                page.keyboard.press("Enter")
+        except Exception:
+            page.keyboard.press("Enter")
+
+        page.wait_for_timeout(1000)
+
+        btn_next_1 = page.get_by_text("Suivant").first
+        if btn_next_1.count() > 0 and btn_next_1.is_visible():
+            btn_next_1.click()
+
+        page.wait_for_timeout(2000)
+        _remove_overlays(page)
+
+        # 2/3 Niveau d'expérience
+        try:
+            page.wait_for_selector("text=Débutant. 0-1 an", timeout=5000)
+            print("   → 2/3 Sélection du niveau d'expérience...")
+            
+            btn_0_1 = page.get_by_text("Débutant. 0-1 an").first
+            if btn_0_1.count() > 0:
+                btn_0_1.click()
+                page.wait_for_timeout(300)
+
+            btn_1_3 = page.get_by_text("Junior. 1-3 ans").first
+            if btn_1_3.count() > 0:
+                btn_1_3.click()
+                page.wait_for_timeout(300)
+
+            btn_next_2 = page.get_by_text("Suivant").first
+            if btn_next_2.count() > 0:
+                btn_next_2.click()
+
+            page.wait_for_timeout(2000)
+            _remove_overlays(page)
+        except Exception:
+            print("   ⚠️ Étape d'expérience ignorée")
+
+        # 3/3 Localisation ("Où souhaitez-vous travailler ?")
+        try:
+            print(f"   → 3/3 Saisie de la localisation : '{location}'")
+            page.wait_for_selector("input[placeholder*='Londres']", timeout=8000)
+            input_loc = page.locator("input[placeholder*='Londres']").first
+            
+            input_loc.click()
+            input_loc.fill("")
+            page.wait_for_timeout(300)
+            
+            page.keyboard.type(location, delay=100)
+            page.wait_for_timeout(1200)
+
+            page.wait_for_selector("ul[role='listbox'] li, [role='option'], [data-testid*='autocomplete'] li", timeout=5000)
+            first_suggestion = page.locator("ul[role='listbox'] li, [role='option'], [data-testid*='autocomplete'] li").first
+            first_suggestion.click()
+            
+            print("   ✓ Clic sur la suggestion d'autocomplétion !")
+            page.wait_for_timeout(1000)
+
+            btn_discover = page.get_by_text("Découvrir mes jobs").first
+            btn_discover.wait_for(state="visible", timeout=5000)
+            btn_discover.click()
+            print("   ✓ Clic sur 'Découvrir mes jobs' !")
+
+            page.wait_for_timeout(4000)
+            _remove_overlays(page)
+        except Exception as e:
+            print(f"   ⚠️ Séquence de secours localisation : {e}")
+            page.keyboard.press("ArrowDown")
+            page.wait_for_timeout(300)
+            page.keyboard.press("Enter")
+            page.wait_for_timeout(1000)
+            btn_discover = page.get_by_text("Découvrir mes jobs").first
+            if btn_discover.is_visible():
+                btn_discover.click()
+
+        # Attente de la redirection vers la page des résultats
+        try:
+            page.wait_for_url(re.compile(r"/(jobs|jobs-preview)"), timeout=10000)
+        except Exception:
+            pass
+
+        # Filtre 'Dernières 24h'
+        try:
+            print("   → Application du filtre 'Dernières 24h'...")
+            page.wait_for_selector("text=Toutes les dates", timeout=8000)
+            date_filter = page.get_by_text("Toutes les dates").first
+            date_filter.click()
+            page.wait_for_timeout(800)
+
+            opt_24h = page.get_by_text("Dernières 24 heures").first
+            if opt_24h.count() > 0:
+                opt_24h.click()
+            else:
+                page.locator("text=24h, text=24 heures, text=Dernières 24h").first.click()
+                
+            page.wait_for_timeout(2000)
+            print("   ✓ Filtre 24h appliqué avec succès.")
+        except Exception as e:
+            print(f"   ⚠️ Impossible de sélectionner le filtre 24h : {e}")
+
+        print(f"   ✓ Tunnel et filtres complétés ! Page actuelle : {page.url}")
         return True
+
     except Exception as e:
-        print(f"   ⚠️ Échec du clic sur le filtre 24h : {e}")
+        print(f"   ⚠️ Échec du tunnel : {e}")
         return False
 
 
 def _collect_cards(page) -> list[dict]:
-    """Fait défiler la page puis récupère les cartes d'offres."""
+    """Extrait les cartes d'offres depuis la page de résultats."""
+    try:
+        page.wait_for_selector("a[href*='/jobs/']", timeout=12000)
+    except Exception:
+        print("   ⚠️ Timeout lors du chargement des cartes.")
+
     for _ in range(3):
         page.evaluate("window.scrollBy(0, 800)")
-        page.wait_for_timeout(1000)
+        page.wait_for_timeout(800)
 
     cards = []
     seen_urls = set()
 
-    for card in page.locator("a[href*='/jobs/']").all():
-        link = card.get_attribute("href")
-        if not link or "/companies/" not in link:
+    job_links = page.locator("a[href*='/jobs/']").all()
+
+    for card in job_links:
+        try:
+            link = card.get_attribute("href") or ""
+            if not link or "/get-started" in link:
+                continue
+
+            full_url = (link if link.startswith("http") else BASE_URL + link).split("?")[0]
+            if full_url in seen_urls:
+                continue
+
+            raw_text = card.inner_text().strip()
+            if not raw_text:
+                continue
+
+            lines = [l.strip() for l in raw_text.split("\n") if l.strip()]
+            title = lines[0] if lines else ""
+
+            if len(title) < 3 or title.lower() in ["voir plus", "suivant", "précédent", "postuler", "en savoir plus"]:
+                continue
+
+            seen_urls.add(full_url)
+            match = re.search(r"/companies/([^/]+)/jobs", link)
+            company = match.group(1).replace("-", " ").title() if match else "N/A"
+            slug, city = _parse_job_url(full_url)
+
+            cards.append({
+                "id": f"wttj_{slug}",
+                "title": title,
+                "company": company,
+                "url": full_url,
+                "location": city,
+            })
+        except Exception:
             continue
-
-        full_url = (link if link.startswith("http") else BASE_URL + link).split("?")[0]
-        if full_url in seen_urls:
-            continue
-        seen_urls.add(full_url)
-
-        raw_text = card.inner_text().strip()
-        title = raw_text.split("\n")[0].strip() if raw_text else ""
-        if not title:
-            continue
-
-        match = re.search(r"/companies/([^/]+)/jobs", link)
-        company = match.group(1).replace("-", " ").title() if match else "N/A"
-        slug, city = _parse_job_url(full_url)
-
-        cards.append({
-            "id": f"wttj_{slug}",
-            "title": title,
-            "company": company,
-            "url": full_url,
-            "location": city,
-        })
 
     return cards
 
 
 def _get_description(page, url: str) -> str:
-    """Texte de la page de détail."""
     try:
         page.goto(url, wait_until="domcontentloaded", timeout=10000)
         page.wait_for_timeout(1000)
-        _remove_overlays(page)
 
         section = page.locator("#the-position-section")
         if section.count() > 0:
@@ -194,19 +268,20 @@ def fetch_offers_for_keyword(browser, keyword: str, location: str = "France") ->
     context = browser.new_context(
         viewport={"width": 1280, "height": 900},
         user_agent=USER_AGENT,
+        locale="fr-FR",
+        timezone_id="Europe/Paris"
     )
     page = context.new_page()
 
     try:
-        date_filter_ok = _run_search_flow(page, keyword, location)
-        if not date_filter_ok:
-            print(f"  ⚠️ Filtre 24h non appliqué pour '{keyword}' : mot-clé ignoré")
+        search_ok = _run_search_flow(page, keyword, location)
+        if not search_ok:
+            print(f"  ⚠️ Recherche en échec pour '{keyword}' : mot-clé ignoré")
             return []
 
         cards = _collect_cards(page)
         print(f"  → {len(cards)} offres trouvées pour '{keyword}' (≤24h)")
 
-        # Passe 1 : filtrage rapide
         candidates = []
         for c in cards:
             raw = {
@@ -216,7 +291,7 @@ def fetch_offers_for_keyword(browser, keyword: str, location: str = "France") ->
                 "secteurActiviteLibelle": "",
                 "entreprise": {"nom": c["company"]},
             }
-            if not passes_hard_filters(raw):
+            if not passes_hard_filters(raw, debug=True):
                 print(f"  ✗ Filtrée (critères titre) : {c['title']} — {c['company']}")
                 continue
             candidates.append(c)
@@ -227,9 +302,12 @@ def fetch_offers_for_keyword(browser, keyword: str, location: str = "France") ->
             print(f"  → limite à {MAX_CANDIDATES_TO_CHECK} candidat(e)s vérifié(e)s")
             candidates = candidates[:MAX_CANDIDATES_TO_CHECK]
 
-        # Passe 2 : lecture de la description + filtres complets
         for c in candidates:
             description = _get_description(page, c["url"])
+
+            if not description:
+                print(f"  ✗ Filtrée (description introuvable/timeout) : {c['title']}")
+                continue
 
             raw_full = {
                 "typeContrat": _detect_contract(description),
@@ -267,25 +345,33 @@ def fetch_offers_batch(keywords: list[str], location: str = "France",
                         headless: bool = True, slow_mo: int = 0) -> dict[str, list[JobOffer]]:
     results = {}
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=headless, slow_mo=slow_mo)
+        browser = p.chromium.launch(
+            headless=headless,
+            slow_mo=slow_mo,
+            args=["--disable-blink-features=AutomationControlled"]
+        )
         for keyword in keywords:
             try:
                 results[keyword] = fetch_offers_for_keyword(browser, keyword, location)
             except Exception as e:
                 print(f"  ⚠️ Erreur mot-clé '{keyword}' : {e}")
                 results[keyword] = []
-            
-            # Pause de 2 secondes entre les requêtes
+
             time.sleep(2)
-            
+
         browser.close()
     return results
 
 
 if __name__ == "__main__":
-    headless = os.getenv("WTTJ_HEADLESS", "0") == "1"
-    res = fetch_offers_batch(["Data Engineer", "Data Analyst"], headless=headless, slow_mo=0 if headless else 100)
+    print("🚀 Démarrage de la collecte dynamique selon PROFILE['job_titles']...")
+    
+    # Chargement dynamique depuis PROFILE
+    keywords_to_search = PROFILE.get("job_titles", ["Data Engineer"])
+
+    res = fetch_offers_batch(keywords_to_search, location="France", headless=False, slow_mo=300)
+
     for kw, offers in res.items():
-        print(f"\n{kw} : {len(offers)} offres retenues")
+        print(f"\nRÉSULTATS pour '{kw}' : {len(offers)} offre(s) retenue(s)")
         for o in offers:
             print(f" - {o.title} | {o.company} | {o.location} | {o.url}")
