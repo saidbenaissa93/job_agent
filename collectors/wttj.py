@@ -14,10 +14,10 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
 
-OVERLAY_JS = (
-    "document.querySelectorAll('#axeptio_overlay, .axeptio_widget, iframe')"
-    ".forEach(e => e.remove());"
-)
+OVERLAY_JS = """
+document.querySelectorAll('#axeptio_overlay, .axeptio_widget, iframe, [id*="axeptio"]').forEach(e => e.remove());
+document.body.style.overflow = 'auto';
+"""
 
 PROFILE = {
     "job_titles": [
@@ -61,32 +61,25 @@ def _parse_job_url(url: str):
 
 
 def _run_search_flow(page, query: str, location: str) -> bool:
-    """Suivi robuste du tunnel avec gestion d'hydratation React."""
     try:
-        # 1. Navigation sécurisée
         page.goto(f"{BASE_URL}/fr/get-started/job-title", wait_until="domcontentloaded", timeout=25000)
-        page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(1500)
+        page.wait_for_timeout(2000)
         _remove_overlays(page)
 
-        # 1/3 Intitulé de poste
         print(f"   → 1/3 Saisie du poste : '{query}'")
         
-        # Sélecteur universel pour trouver le champ texte quel que soit l'état de la page
-        input_job = page.locator("input[placeholder*='Product'], input[type='text'], input[type='search'], input").first
-        input_job.wait_for(state="visible", timeout=12000)
-        
-        input_job.click()
-        input_job.fill("")
-        page.keyboard.type(query, delay=80)
-        page.wait_for_timeout(1000)
+        box = page.locator("[role='combobox'], [contenteditable='true'], input, main div").first
+        box.wait_for(state="attached", timeout=10000)
+        box.click(force=True)
 
-        # Clic autocomplétion
+        page.wait_for_timeout(500)
+        page.keyboard.type(query, delay=80)
+        page.wait_for_timeout(1200)
+
         try:
-            job_opt = page.locator("ul[role='listbox'] li, [role='option'], li").first
+            job_opt = page.locator("ul[role='listbox'] li, [role='option']").first
             if job_opt.count() > 0 and job_opt.is_visible():
                 job_opt.click()
-                page.wait_for_timeout(500)
             else:
                 page.keyboard.press("ArrowDown")
                 page.keyboard.press("Enter")
@@ -102,7 +95,6 @@ def _run_search_flow(page, query: str, location: str) -> bool:
         page.wait_for_timeout(2000)
         _remove_overlays(page)
 
-        # 2/3 Niveau d'expérience
         try:
             page.wait_for_selector("text=Débutant. 0-1 an", timeout=5000)
             print("   → 2/3 Sélection du niveau d'expérience...")
@@ -110,12 +102,10 @@ def _run_search_flow(page, query: str, location: str) -> bool:
             btn_0_1 = page.get_by_text("Débutant. 0-1 an").first
             if btn_0_1.count() > 0:
                 btn_0_1.click()
-                page.wait_for_timeout(300)
 
             btn_1_3 = page.get_by_text("Junior. 1-3 ans").first
             if btn_1_3.count() > 0:
                 btn_1_3.click()
-                page.wait_for_timeout(300)
 
             btn_next_2 = page.get_by_text("Suivant").first
             if btn_next_2.count() > 0:
@@ -126,50 +116,43 @@ def _run_search_flow(page, query: str, location: str) -> bool:
         except Exception:
             print("   ⚠️ Étape d'expérience ignorée")
 
-        # 3/3 Localisation
         try:
             print(f"   → 3/3 Saisie de la localisation : '{location}'")
-            input_loc = page.locator("input[placeholder*='Londres'], input[type='text'], input").first
-            input_loc.wait_for(state="visible", timeout=8000)
             
-            input_loc.click()
-            input_loc.fill("")
+            loc_box = page.locator("[role='combobox'], [contenteditable='true'], input").first
+            loc_box.click(force=True)
+
             page.wait_for_timeout(300)
-            
             page.keyboard.type(location, delay=100)
             page.wait_for_timeout(1500)
 
-            first_suggestion = page.locator("ul[role='listbox'] li, [role='option'], [data-testid*='autocomplete'] li").first
-            first_suggestion.wait_for(state="visible", timeout=5000)
-            first_suggestion.click()
-            
-            print("   ✓ Clic sur la suggestion de localisation !")
+            loc_option = page.locator("ul[role='listbox'] li, [role='option']").first
+            loc_option.wait_for(state="visible", timeout=5000)
+            loc_option.click()
+            print("   ✓ Tag de localisation généré.")
             page.wait_for_timeout(1000)
 
             btn_discover = page.get_by_text("Découvrir mes jobs").first
             btn_discover.wait_for(state="visible", timeout=5000)
             btn_discover.click()
-            print("   ✓ Clic sur 'Découvrir mes jobs' !")
+            print("   ✓ Clic réussi sur 'Découvrir mes jobs' !")
 
             page.wait_for_timeout(4000)
             _remove_overlays(page)
         except Exception as e:
-            print(f"   ⚠️ Séquence de secours localisation : {e}")
+            print(f"   ⚠️ Séquence alternative localisation : {e}")
             page.keyboard.press("ArrowDown")
-            page.wait_for_timeout(300)
             page.keyboard.press("Enter")
             page.wait_for_timeout(1000)
             btn_discover = page.get_by_text("Découvrir mes jobs").first
             if btn_discover.is_visible():
                 btn_discover.click()
 
-        # Attente redirection
         try:
             page.wait_for_url(re.compile(r"/(jobs|jobs-preview)"), timeout=10000)
         except Exception:
             pass
 
-        # Filtre 'Dernières 24h'
         try:
             print("   → Application du filtre 'Dernières 24h'...")
             page.wait_for_selector("text=Toutes les dates", timeout=8000)
@@ -186,9 +169,8 @@ def _run_search_flow(page, query: str, location: str) -> bool:
             page.wait_for_timeout(2000)
             print("   ✓ Filtre 24h appliqué avec succès.")
         except Exception as e:
-            print(f"   ⚠️ Impossible de sélectionner le filtre 24h : {e}")
+            print(f"   ⚠️ Filtre 24h non appliqué : {e}")
 
-        print(f"   ✓ Tunnel et filtres complétés ! Page actuelle : {page.url}")
         return True
 
     except Exception as e:
@@ -283,7 +265,7 @@ def fetch_offers_for_keyword(browser, keyword: str, location: str = "France") ->
             return []
 
         cards = _collect_cards(page)
-        print(f"  → {len(cards)} offres trouvées pour '{keyword}' (≤24h)")
+        print(f"  → {len(cards)} offres trouvées pour '{keyword}'")
 
         candidates = []
         for c in cards:
@@ -344,8 +326,9 @@ def fetch_offers_for_keyword(browser, keyword: str, location: str = "France") ->
     return offers
 
 
+# Note : headless=False et slow_mo=200 sont maintenant définis par défaut
 def fetch_offers_batch(keywords: list[str], location: str = "France",
-                        headless: bool = True, slow_mo: int = 0) -> dict[str, list[JobOffer]]:
+                        headless: bool = False, slow_mo: int = 200) -> dict[str, list[JobOffer]]:
     results = {}
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -367,11 +350,9 @@ def fetch_offers_batch(keywords: list[str], location: str = "France",
 
 
 if __name__ == "__main__":
-    print("🚀 Démarrage de la collecte globale WTTJ...")
-    
+    print("🚀 Démarrage WTTJ (Mode visible)...")
     keywords_to_search = PROFILE.get("job_titles", ["Data Engineer"])
-
-    res = fetch_offers_batch(keywords_to_search, location="France", headless=False, slow_mo=300)
+    res = fetch_offers_batch(keywords_to_search, location="France")
 
     for kw, offers in res.items():
         print(f"\nRÉSULTATS pour '{kw}' : {len(offers)} offre(s) retenue(s)")
