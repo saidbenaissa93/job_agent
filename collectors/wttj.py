@@ -19,7 +19,6 @@ OVERLAY_JS = (
     ".forEach(e => e.remove());"
 )
 
-# Configuration de ton profil
 PROFILE = {
     "job_titles": [
         "Data Engineer",
@@ -62,22 +61,27 @@ def _parse_job_url(url: str):
 
 
 def _run_search_flow(page, query: str, location: str) -> bool:
-    """Accède au tunnel de recherche WTTJ et active le filtre 'Dernières 24 heures' sur la page de résultats."""
+    """Suivi robuste du tunnel avec gestion d'hydratation React."""
     try:
-        # Étape 1 : Ouverture du tunnel
-        page.goto(f"{BASE_URL}/fr/get-started/job-title", wait_until="domcontentloaded", timeout=20000)
-        page.wait_for_timeout(2000)
+        # 1. Navigation sécurisée
+        page.goto(f"{BASE_URL}/fr/get-started/job-title", wait_until="domcontentloaded", timeout=25000)
+        page.wait_for_load_state("networkidle")
+        page.wait_for_timeout(1500)
         _remove_overlays(page)
 
         # 1/3 Intitulé de poste
         print(f"   → 1/3 Saisie du poste : '{query}'")
-        input_job = page.locator("input[type='text']").first
-        input_job.wait_for(state="visible", timeout=8000)
+        
+        # Sélecteur universel pour trouver le champ texte quel que soit l'état de la page
+        input_job = page.locator("input[placeholder*='Product'], input[type='text'], input[type='search'], input").first
+        input_job.wait_for(state="visible", timeout=12000)
+        
         input_job.click()
-        page.keyboard.type(query, delay=50)
+        input_job.fill("")
+        page.keyboard.type(query, delay=80)
         page.wait_for_timeout(1000)
 
-        # Clic sur la suggestion de poste
+        # Clic autocomplétion
         try:
             job_opt = page.locator("ul[role='listbox'] li, [role='option'], li").first
             if job_opt.count() > 0 and job_opt.is_visible():
@@ -122,24 +126,24 @@ def _run_search_flow(page, query: str, location: str) -> bool:
         except Exception:
             print("   ⚠️ Étape d'expérience ignorée")
 
-        # 3/3 Localisation ("Où souhaitez-vous travailler ?")
+        # 3/3 Localisation
         try:
             print(f"   → 3/3 Saisie de la localisation : '{location}'")
-            page.wait_for_selector("input[placeholder*='Londres']", timeout=8000)
-            input_loc = page.locator("input[placeholder*='Londres']").first
+            input_loc = page.locator("input[placeholder*='Londres'], input[type='text'], input").first
+            input_loc.wait_for(state="visible", timeout=8000)
             
             input_loc.click()
             input_loc.fill("")
             page.wait_for_timeout(300)
             
             page.keyboard.type(location, delay=100)
-            page.wait_for_timeout(1200)
+            page.wait_for_timeout(1500)
 
-            page.wait_for_selector("ul[role='listbox'] li, [role='option'], [data-testid*='autocomplete'] li", timeout=5000)
             first_suggestion = page.locator("ul[role='listbox'] li, [role='option'], [data-testid*='autocomplete'] li").first
+            first_suggestion.wait_for(state="visible", timeout=5000)
             first_suggestion.click()
             
-            print("   ✓ Clic sur la suggestion d'autocomplétion !")
+            print("   ✓ Clic sur la suggestion de localisation !")
             page.wait_for_timeout(1000)
 
             btn_discover = page.get_by_text("Découvrir mes jobs").first
@@ -159,7 +163,7 @@ def _run_search_flow(page, query: str, location: str) -> bool:
             if btn_discover.is_visible():
                 btn_discover.click()
 
-        # Attente de la redirection vers la page des résultats
+        # Attente redirection
         try:
             page.wait_for_url(re.compile(r"/(jobs|jobs-preview)"), timeout=10000)
         except Exception:
@@ -193,7 +197,6 @@ def _run_search_flow(page, query: str, location: str) -> bool:
 
 
 def _collect_cards(page) -> list[dict]:
-    """Extrait les cartes d'offres depuis la page de résultats."""
     try:
         page.wait_for_selector("a[href*='/jobs/']", timeout=12000)
     except Exception:
@@ -364,9 +367,8 @@ def fetch_offers_batch(keywords: list[str], location: str = "France",
 
 
 if __name__ == "__main__":
-    print("🚀 Démarrage de la collecte dynamique selon PROFILE['job_titles']...")
+    print("🚀 Démarrage de la collecte globale WTTJ...")
     
-    # Chargement dynamique depuis PROFILE
     keywords_to_search = PROFILE.get("job_titles", ["Data Engineer"])
 
     res = fetch_offers_batch(keywords_to_search, location="France", headless=False, slow_mo=300)
