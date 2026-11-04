@@ -66,35 +66,36 @@ def _run_search_flow(page, query: str, location: str) -> bool:
         page.wait_for_timeout(2000)
         _remove_overlays(page)
 
+        # 1/3 Intitulé de poste
         print(f"   → 1/3 Saisie du poste : '{query}'")
-        
-        box = page.locator("[role='combobox'], [contenteditable='true'], input, main div").first
-        box.wait_for(state="attached", timeout=10000)
-        box.click(force=True)
 
-        page.wait_for_timeout(500)
-        page.keyboard.type(query, delay=80)
-        page.wait_for_timeout(1200)
-
-        try:
-            job_opt = page.locator("ul[role='listbox'] li, [role='option']").first
-            if job_opt.count() > 0 and job_opt.is_visible():
-                job_opt.click()
+        # Clic sur le composant réactif de saisie
+        input_target = page.locator("input, [contenteditable='true'], [role='combobox']").first
+        if not input_target.is_visible():
+            placeholder = page.get_by_text("Product Designer, Développeur Full-stack...").first
+            if placeholder.count() > 0:
+                placeholder.click()
             else:
-                page.keyboard.press("ArrowDown")
-                page.keyboard.press("Enter")
-        except Exception:
-            page.keyboard.press("Enter")
+                page.locator("main div").first.click(force=True)
+        else:
+            input_target.click(force=True)
 
+        page.wait_for_timeout(400)
+        page.keyboard.type(query, delay=80)
         page.wait_for_timeout(1000)
 
-        btn_next_1 = page.get_by_text("Suivant").first
-        if btn_next_1.count() > 0 and btn_next_1.is_visible():
-            btn_next_1.click()
+        # Clic sur le bouton Suivant (jaune sur la capture)
+        btn_next_1 = page.locator("button:has-text('Suivant')").first
+        if not btn_next_1.is_visible():
+            btn_next_1 = page.get_by_text("Suivant").first
+
+        btn_next_1.click()
+        print("   ✓ Saisie effectuée & clic sur 'Suivant' (Étape 1/3)")
 
         page.wait_for_timeout(2000)
         _remove_overlays(page)
 
+        # 2/3 Niveau d'expérience
         try:
             page.wait_for_selector("text=Débutant. 0-1 an", timeout=5000)
             print("   → 2/3 Sélection du niveau d'expérience...")
@@ -107,8 +108,8 @@ def _run_search_flow(page, query: str, location: str) -> bool:
             if btn_1_3.count() > 0:
                 btn_1_3.click()
 
-            btn_next_2 = page.get_by_text("Suivant").first
-            if btn_next_2.count() > 0:
+            btn_next_2 = page.locator("button:has-text('Suivant')").first
+            if btn_next_2.is_visible():
                 btn_next_2.click()
 
             page.wait_for_timeout(2000)
@@ -116,11 +117,12 @@ def _run_search_flow(page, query: str, location: str) -> bool:
         except Exception:
             print("   ⚠️ Étape d'expérience ignorée")
 
+        # 3/3 Localisation
         try:
             print(f"   → 3/3 Saisie de la localisation : '{location}'")
             
-            loc_box = page.locator("[role='combobox'], [contenteditable='true'], input").first
-            loc_box.click(force=True)
+            loc_input = page.locator("input, [contenteditable='true'], [role='combobox']").first
+            loc_input.click(force=True)
 
             page.wait_for_timeout(300)
             page.keyboard.type(location, delay=100)
@@ -132,8 +134,10 @@ def _run_search_flow(page, query: str, location: str) -> bool:
             print("   ✓ Tag de localisation généré.")
             page.wait_for_timeout(1000)
 
-            btn_discover = page.get_by_text("Découvrir mes jobs").first
-            btn_discover.wait_for(state="visible", timeout=5000)
+            btn_discover = page.locator("button:has-text('Découvrir mes jobs')").first
+            if not btn_discover.is_visible():
+                btn_discover = page.get_by_text("Découvrir mes jobs").first
+
             btn_discover.click()
             print("   ✓ Clic réussi sur 'Découvrir mes jobs' !")
 
@@ -141,7 +145,6 @@ def _run_search_flow(page, query: str, location: str) -> bool:
             _remove_overlays(page)
         except Exception as e:
             print(f"   ⚠️ Séquence alternative localisation : {e}")
-            page.keyboard.press("ArrowDown")
             page.keyboard.press("Enter")
             page.wait_for_timeout(1000)
             btn_discover = page.get_by_text("Découvrir mes jobs").first
@@ -153,6 +156,7 @@ def _run_search_flow(page, query: str, location: str) -> bool:
         except Exception:
             pass
 
+        # Filtre 24h
         try:
             print("   → Application du filtre 'Dernières 24h'...")
             page.wait_for_selector("text=Toutes les dates", timeout=8000)
@@ -326,7 +330,6 @@ def fetch_offers_for_keyword(browser, keyword: str, location: str = "France") ->
     return offers
 
 
-# Note : headless=False et slow_mo=200 sont maintenant définis par défaut
 def fetch_offers_batch(keywords: list[str], location: str = "France",
                         headless: bool = False, slow_mo: int = 200) -> dict[str, list[JobOffer]]:
     results = {}
@@ -350,9 +353,10 @@ def fetch_offers_batch(keywords: list[str], location: str = "France",
 
 
 if __name__ == "__main__":
-    print("🚀 Démarrage WTTJ (Mode visible)...")
+    print("🚀 Démarrage du tunnel WTTJ (Mode visible)...")
     keywords_to_search = PROFILE.get("job_titles", ["Data Engineer"])
-    res = fetch_offers_batch(keywords_to_search, location="France")
+    
+    res = fetch_offers_batch(keywords_to_search, location="France", headless=False, slow_mo=200)
 
     for kw, offers in res.items():
         print(f"\nRÉSULTATS pour '{kw}' : {len(offers)} offre(s) retenue(s)")
