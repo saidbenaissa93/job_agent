@@ -49,11 +49,14 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: playwright install-deps chromium
 
+      - name: Installer Xvfb pour l'écran virtuel
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
       - name: Lancer le scraping + scoring
         env:
           FT_CLIENT_ID: ${{ secrets.FT_CLIENT_ID }}
           FT_CLIENT_SECRET: ${{ secrets.FT_CLIENT_SECRET }}
-        run: python refresh.py
+        run: xvfb-run python refresh.py
 
       - name: Commit la base mise à jour
         run: |
