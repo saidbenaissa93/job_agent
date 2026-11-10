@@ -39,15 +39,15 @@ jobs:
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-v2-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          key: playwright-v3-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
 
-      - name: Installer Playwright (navigateur + dépendances système)
+      - name: Installer Playwright (navigateurs + dépendances système)
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: playwright install --with-deps chromium
+        run: playwright install --with-deps
 
       - name: Installer dépendances système Playwright (si cache hit)
         if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: playwright install-deps chromium
+        run: playwright install-deps
 
       - name: Installer Xvfb pour l'écran virtuel
         run: sudo apt-get update && sudo apt-get install -y xvfb
