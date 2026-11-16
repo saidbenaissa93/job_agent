@@ -28,6 +28,10 @@ jobs:
       - name: Installer les dépendances Python
         run: pip install -r requirements.txt
 
+      - name: Récupérer la version exacte de Playwright
+        id: pw-version
+        run: echo "version=$(python -c 'import importlib.metadata; print(importlib.metadata.version("playwright"))')" >> $GITHUB_OUTPUT
+
       - name: Cache modèle sentence-transformers
         uses: actions/cache@v4
         with:
@@ -39,7 +43,7 @@ jobs:
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-v3-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          key: playwright-${{ runner.os }}-${{ steps.pw-version.outputs.version }}
 
       - name: Installer Playwright (navigateurs + dépendances système)
         if: steps.playwright-cache.outputs.cache-hit != 'true'
